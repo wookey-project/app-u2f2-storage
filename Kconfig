@@ -1,29 +1,32 @@
-menu "U2F storage app"
+menu "STORAGE custom app"
 
 config APP_STORAGE
-  bool "U2F storage handler"
+  bool "Storage App"
   depends on STM32F4
   default y
-  select USR_LIB_WOOKEY
+  select USR_LIB_U2F2
+  select USR_LIB_SD
+  select USR_DRV_SDIO
   ---help---
-    Say y if you want to embbed U2F NFC-based AUTH mechanism
+    Say y if you want to embbed STORAGE custom application.
 
 if APP_STORAGE
 
 config APP_STORAGE_FW
-  bool "Usb App for firmware mode"
+  bool "Sdio App for firmware mode"
   depends on APP_STORAGE
   depends on STM32F4
   default y
   ---help---
-    Say y if you want to embbed Usb custom application in firmware.
+    Say y if you want to embbed Sdio custom application in firmware.
 
 config APP_STORAGE_HEAPSIZE
-  int "task heap size in bytes"
+  int "Heap section size"
   depends on APP_STORAGE
-  default 1024
+  default 512
   ---help---
-    specify the requested heap size in bytes.
+    specify the requested heap size in bytes. Only requested if dynamic memory
+    primitives are used (typically malloc())
 
 config APP_STORAGE_STACKSIZE
   int "Stack size"
@@ -44,23 +47,6 @@ config APP_STORAGE_PRIO
     - Tasks of same priority are executed respecting a Round-Robin scheduling
     When using priority and RMA scheduling, please take care to yield()
     as much as possible to avoid deny of service to lower priority tasks
-
-choice
-  prompt "USB backend driver choice"
-  config APP_STORAGE_USR_DRV_USB_HS
-     bool "use high speed backend driver"
-     select USR_DRV_USBOTGHS
-     select LIB_USBCTRL
-     ---help---
-       Use High speed backend driver for USB 2.0 performance level support
-       (upto theorical 480Mb/s)
-  config APP_STORAGE_USR_DRV_USB_FS
-     bool "use full speed backend driver"
-     select USR_DRV_USBOTGFS
-     select LIB_USBCTRL
-     ---help---
-        new dynamic, hotpluggable and multi-interfaces USB stack with runtime interface(s) registration
-endchoice
 
 
 menu "Permissions"
@@ -97,7 +83,7 @@ config APP_STORAGE_PERM_DEV_BUSES
 
 config APP_STORAGE_PERM_DEV_EXTI
     bool "App can use EXTI or GPIO driven external interrupts"
-    default n
+    default y
 
 config APP_STORAGE_PERM_DEV_TIM
     bool "App can register a hardware timer"
@@ -165,7 +151,6 @@ config APP_STORAGE_PERM_TSK_RNG
     kernel to generate entropy. This can be use for various needs.
 
 
-
 endmenu
 
 menu "Memory management"
@@ -185,7 +170,7 @@ endmenu
 
 config APP_STORAGE_DOMAIN
     depends on APP_STORAGE
-    int "USB app security domain"
+    int "STORAGE app security domain"
     default 0
 
 endif
