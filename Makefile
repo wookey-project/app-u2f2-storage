@@ -39,7 +39,7 @@ CFLAGS += -Isrc/ -MMD -MP
 # linker options to add the layout file
 LDFLAGS += $(EXTRA_LDFLAGS) -L$(APP_BUILD_DIR)
 # project's library you whish to use...
-LD_LIBS += -lstd -lsd -lsdio -lu2f2
+LD_LIBS +=  -Wl,--start-group -Wl,-lstd -Wl,-lsd -Wl,-lsdio -Wl,-lu2f2 -Wl,-lfidostorage -Wl,-laes -Wl,-lcryp -Wl,--end-group
 
 ifeq (y,$(CONFIG_STD_DRBG))
 LD_LIBS += -lhmac -lsign
@@ -77,6 +77,8 @@ TODEL_DISTCLEAN += $(APP_BUILD_DIR)
 ## library dependencies
 LIBDEP := $(BUILD_DIR)/libs/libstd/libstd.a \
           $(BUILD_DIR)/libs/libsd/libsd.a \
+          $(BUILD_DIR)/libs/libfidostorage/libfidostorage.a \
+          $(BUILD_DIR)/libs/libaes/libaes.a \
           $(BUILD_DIR)/libs/libsd/libu2f2.a
 
 libdep: $(LIBDEP)
@@ -86,7 +88,8 @@ $(LIBDEP):
 
 
 # drivers dependencies
-SOCDRVDEP := $(BUILD_DIR)/drivers/libsdio/libsdio.a
+SOCDRVDEP := $(BUILD_DIR)/drivers/libsdio/libsdio.a \
+             $(BUILD_DIR)/drivers/libcryp/libcryp.a
 
 socdrvdep: $(SOCDRVDEP)
 

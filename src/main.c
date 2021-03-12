@@ -14,7 +14,9 @@
 #include "libc/errno.h"
 #include "libsdio.h"
 #include "libsd.h"
+#include "libcryp.h"
 #include "libu2f2.h"
+#include "libfidostorage.h"
 
 #include "generated/led1.h"
 
@@ -26,12 +28,12 @@
  * without compiler complain. argc/argv is not a goot idea in term
  * of size and calculation in a microcontroler
  */
-#define SDIO_DEBUG 0
-#define SDIO_BUF_SIZE 16384
+#define STORAGE_DEBUG 0
+#define STORAGE_BUF_SIZE 4096
 
 /* NOTE: alignment due to DMA */
 __attribute__ ((aligned(4)))
-     uint8_t sdio_buf[SDIO_BUF_SIZE] = { 0 };
+     uint8_t buf[STORAGE_BUF_SIZE] = { 0 };
 
 extern volatile uint8_t SD_ejection_occured;
 
@@ -57,18 +59,18 @@ static inline void led_off(void)
 }
 
 
-void SDIO_asks_reset(uint8_t id_fido)
+void SDIO_asks_reset(uint8_t fido_msq)
 {
     // TODO
-    id_fido = id_fido;
+    fido_msq = fido_msq;
 }
 
+int fido_msq = 0;
 
 int _main(uint32_t task_id)
 {
     e_syscall_ret ret;
     char   *wellcome_msg = "hello, I'm storage";
-    uint8_t id_fido = 0;
 #if 0
     dma_shm_t dmashm_rd;
     dma_shm_t dmashm_wr;
@@ -77,44 +79,53 @@ int _main(uint32_t task_id)
 
     printf("%s, my id is %x\n", wellcome_msg, task_id);
 
+    fido_msq = msgget("fido", IPC_CREAT | IPC_EXCL);
+    if (fido_msq == -1) {
+        printf("error while requesting SysV message queue. Errno=%x\n", errno);
+        goto error;
+    }
+
     /* Early init phase of drivers/libs */
     if (sd_early_init()) {
         printf("SDIO KO !!!!! \n");
     }
 
+#if 1
+    // PTH test cryp
+    cryp_early_init(true, CRYP_MAP_AUTO, CRYP_CFG, NULL, NULL);
+#endif
 
     /*********************************************
-     * Declaring DMA Shared Memory with Crypto
+     * Declaring DMA Shared Memory with FIDO
      *********************************************/
-
 #if 0
-    /* Crypto DMA will read from this buffer */
-    dmashm_rd.target = id_fido;
+    /* FIDO DMA will read from this buffer */
+    dmashm_rd.target = fido_msq;
     dmashm_rd.source = task_id;
-    dmashm_rd.address = (physaddr_t) sdio_buf;
-    dmashm_rd.size = SDIO_BUF_SIZE;
+    dmashm_rd.address = (physaddr_t) storage_buf;
+    dmashm_rd.size = STORAGE_BUF_SIZE;
     dmashm_rd.mode = DMA_SHM_ACCESS_RD;
 
-    /* Crypto DMA will write into this buffer */
-    dmashm_wr.target = id_fido;
+    /* FIDO DMA will write into this buffer */
+    dmashm_wr.target = fido_msq;
     dmashm_wr.source = task_id;
-    dmashm_wr.address = (physaddr_t) sdio_buf;
-    dmashm_wr.size = SDIO_BUF_SIZE;
+    dmashm_wr.address = (physaddr_t) storage_buf;
+    dmashm_wr.size = STORAGE_BUF_SIZE;
     dmashm_wr.mode = DMA_SHM_ACCESS_WR;
 
-    printf("Declaring DMA_SHM for SDIO read flow\n");
+    printf("Declaring DMA_SHM for FIDO read flow\n");
     ret = sys_init(INIT_DMA_SHM, &dmashm_rd);
     if (ret != SYS_E_DONE) {
-#if SDIO_DEBUG
+#if STORAGE_DEBUG
         printf("Oops! %s:%d\n", __func__, __LINE__);
 #endif
         goto error;
     }
 
-    printf("Declaring DMA_SHM for SDIO write flow\n");
+    printf("Declaring DMA_SHM for FIDO write flow\n");
     ret = sys_init(INIT_DMA_SHM, &dmashm_wr);
     if (ret != SYS_E_DONE) {
-#if SDIO_DEBUG
+#if STORAGE_DEBUG
         printf("Oops! %s:%d\n", __func__, __LINE__);
 #endif
         goto error;
@@ -167,9 +178,11 @@ int _main(uint32_t task_id)
      *******************************************/
 
     /* Init phase of drivers/libs */
+#if 0
     if (SD_ejection_occured) {
-        SDIO_asks_reset(id_fido);
+        SDIO_asks_reset(fido_msq);
     }
+#endif
     sd_init();
 
     /************************************************
@@ -221,13 +234,23 @@ int _main(uint32_t task_id)
        512 nytes is the mandatory blocksize for SD card >= HC
        it is also mandatorily support by the other cards so it can be hardcoded
     */
+
+    fidostorage_configure(buf, STORAGE_BUF_SIZE);
     sd_set_block_len(512);
+
+    sys_sleep(5000, SLEEP_MODE_INTERRUPTIBLE);
+    uint8_t appid[32] = { 0x42 };
+    uint32_t slot;
+    fidostorage_get_appid_slot(&appid[0], &slot);
+
+
 
     printf("SDIO main loop starting\n");
     /*
      * Main waiting loopt. The task main thread is awoken by any external
      * event such as ISR or IPC.
      */
+
 
     while (1) {
 
