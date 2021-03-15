@@ -67,14 +67,11 @@ void SDIO_asks_reset(uint8_t fido_msq)
 
 int fido_msq = 0;
 
+
 int _main(uint32_t task_id)
 {
     e_syscall_ret ret;
     char   *wellcome_msg = "hello, I'm storage";
-#if 0
-    dma_shm_t dmashm_rd;
-    dma_shm_t dmashm_wr;
-#endif
     int     led_desc;
 
     printf("%s, my id is %x\n", wellcome_msg, task_id);
@@ -92,7 +89,7 @@ int _main(uint32_t task_id)
 
 #if 1
     // PTH test cryp
-    cryp_early_init(true, CRYP_MAP_AUTO, CRYP_CFG, NULL, NULL);
+    fidostorage_declare();
 #endif
 
     /*********************************************
@@ -238,10 +235,13 @@ int _main(uint32_t task_id)
     fidostorage_configure(buf, STORAGE_BUF_SIZE);
     sd_set_block_len(512);
 
-    sys_sleep(5000, SLEEP_MODE_INTERRUPTIBLE);
+    sys_sleep(7000, SLEEP_MODE_INTERRUPTIBLE);
     uint8_t appid[32] = { 0x42 };
     uint32_t slot;
+    fidostorage_appid_metadata_t mt;
+    printf("[fiostorage] starting appid measurement\n");
     fidostorage_get_appid_slot(&appid[0], &slot);
+    fidostorage_get_appid_metadata(&appid[0], 0xce04, &mt);
 
 
 
