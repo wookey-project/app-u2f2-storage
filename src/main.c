@@ -252,9 +252,11 @@ int _main(uint32_t task_id)
      */
 
 
+    sys_yield();
     while (1) {
 
-        sys_sleep(500, SLEEP_MODE_INTERRUPTIBLE);
+        sys_yield();
+    //    sys_sleep(500, SLEEP_MODE_INTERRUPTIBLE);
     }
 
  error:
