@@ -87,10 +87,8 @@ int _main(uint32_t task_id)
         printf("SDIO KO !!!!! \n");
     }
 
-#if 1
     // PTH test cryp
     fidostorage_declare();
-#endif
 
     /*********************************************
      * Declaring DMA Shared Memory with FIDO
