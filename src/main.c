@@ -235,11 +235,14 @@ int _main(uint32_t task_id)
 
     sys_sleep(7000, SLEEP_MODE_INTERRUPTIBLE);
     uint8_t appid[32] = { 0x42 };
+    uint8_t hmac[32] = { 0x0 };
     uint32_t slot;
-    fidostorage_appid_metadata_t mt;
+    /* we reuse the global buffer for metadata to reduce memory consumption */
+    fidostorage_appid_slot_t *mt = (fidostorage_appid_slot_t *)&buf[0];
+
     printf("[fiostorage] starting appid measurement\n");
-    fidostorage_get_appid_slot(&appid[0], &slot);
-    fidostorage_get_appid_metadata(&appid[0], 0xce04, &mt);
+    fidostorage_get_appid_slot(&appid[0], &slot, &hmac[0]);
+    fidostorage_get_appid_metadata(&appid[0], slot, &hmac[0], mt);
 
 
 
