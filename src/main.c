@@ -217,6 +217,7 @@ int _main(uint32_t task_id)
         goto error;
     }
 #endif
+    /* XXX: FIX using hardcoded AES key while not yet communicating with FIDO app */
 
     printf("Fido informed.\n");
 
@@ -230,11 +231,79 @@ int _main(uint32_t task_id)
        it is also mandatorily support by the other cards so it can be hardcoded
     */
 
-    fidostorage_configure(buf, STORAGE_BUF_SIZE);
     sd_set_block_len(512);
 
+    uint8_t aes_key[32] = {
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+        0xaa,
+    };
+
+    fidostorage_configure(buf, STORAGE_BUF_SIZE, &aes_key[0]);
+
     sys_sleep(7000, SLEEP_MODE_INTERRUPTIBLE);
-    uint8_t appid[32] = { 0x42 };
+    uint8_t appid[32] = {
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xc5
+     };
     uint8_t hmac[32] = { 0x0 };
     uint32_t slot;
     /* we reuse the global buffer for metadata to reduce memory consumption */
