@@ -265,6 +265,7 @@ int _main(uint32_t task_id)
         0xaa,
         0xaa,
         0xaa,
+        0xaa,
     };
 
     fidostorage_configure(buf, STORAGE_BUF_SIZE, &aes_key[0]);
