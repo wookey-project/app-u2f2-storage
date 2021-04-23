@@ -66,6 +66,27 @@ void SDIO_asks_reset(uint8_t fido_msq)
 }
 
 int fido_msq = 0;
+uint8_t hmac[32] = { 0x0 };
+
+
+mbed_error_t prepare_and_send_appid_metadata(int msq, uint8_t  *appid)
+{
+    uint32_t slot;
+    mbed_error_t errcode = MBED_ERROR_NONE;
+    if ((errcode = fidostorage_get_appid_slot(&appid[0], &slot, &hmac[0])) != MBED_ERROR_NONE) {
+        errcode = send_appid_metadata(msq, appid, NULL, NULL);
+        goto err;
+    }
+    fidostorage_appid_slot_t *mt = (fidostorage_appid_slot_t *)&buf[0];
+    if ((errcode = fidostorage_get_appid_metadata(&appid[0], slot, &hmac[0], mt)) != MBED_ERROR_NONE) {
+        errcode = send_appid_metadata(msq, appid, NULL, NULL);
+        goto err;
+    }
+    errcode = send_appid_metadata(msq, appid, mt, &mt->icon.icon_data[0]);
+err:
+    return errcode;
+}
+
 
 
 int _main(uint32_t task_id)
@@ -89,44 +110,6 @@ int _main(uint32_t task_id)
 
     // PTH test cryp
     fidostorage_declare();
-
-    /*********************************************
-     * Declaring DMA Shared Memory with FIDO
-     *********************************************/
-#if 0
-    /* FIDO DMA will read from this buffer */
-    dmashm_rd.target = fido_msq;
-    dmashm_rd.source = task_id;
-    dmashm_rd.address = (physaddr_t) storage_buf;
-    dmashm_rd.size = STORAGE_BUF_SIZE;
-    dmashm_rd.mode = DMA_SHM_ACCESS_RD;
-
-    /* FIDO DMA will write into this buffer */
-    dmashm_wr.target = fido_msq;
-    dmashm_wr.source = task_id;
-    dmashm_wr.address = (physaddr_t) storage_buf;
-    dmashm_wr.size = STORAGE_BUF_SIZE;
-    dmashm_wr.mode = DMA_SHM_ACCESS_WR;
-
-    printf("Declaring DMA_SHM for FIDO read flow\n");
-    ret = sys_init(INIT_DMA_SHM, &dmashm_rd);
-    if (ret != SYS_E_DONE) {
-#if STORAGE_DEBUG
-        printf("Oops! %s:%d\n", __func__, __LINE__);
-#endif
-        goto error;
-    }
-
-    printf("Declaring DMA_SHM for FIDO write flow\n");
-    ret = sys_init(INIT_DMA_SHM, &dmashm_wr);
-    if (ret != SYS_E_DONE) {
-#if STORAGE_DEBUG
-        printf("Oops! %s:%d\n", __func__, __LINE__);
-#endif
-        goto error;
-    }
-    printf("sys_init returns %s !\n", strerror(ret));
-#endif
 
 #if CONFIG_WOOKEY
     /*********************************************
@@ -268,8 +251,10 @@ int _main(uint32_t task_id)
         0xaa,
     };
 
+
     fidostorage_configure(buf, STORAGE_BUF_SIZE, &aes_key[0]);
 
+#if 0
     sys_sleep(7000, SLEEP_MODE_INTERRUPTIBLE);
     uint8_t appid[32] = {
     0xcc,
@@ -305,8 +290,6 @@ int _main(uint32_t task_id)
     0xcc,
     0xc5
      };
-    uint8_t hmac[32] = { 0x0 };
-    uint32_t slot;
     /* we reuse the global buffer for metadata to reduce memory consumption */
     fidostorage_appid_slot_t *mt = (fidostorage_appid_slot_t *)&buf[0];
 
@@ -314,6 +297,7 @@ int _main(uint32_t task_id)
     fidostorage_get_appid_slot(&appid[0], &slot, &hmac[0]);
     fidostorage_get_appid_metadata(&appid[0], slot, &hmac[0], mt);
 
+#endif
 
 
     printf("SDIO main loop starting\n");
@@ -322,13 +306,32 @@ int _main(uint32_t task_id)
      * event such as ISR or IPC.
      */
 
+    int msqr;
+    struct msgbuf msgbuf = { 0 };
+    size_t msgsz = 64;
 
-    sys_yield();
-    while (1) {
+    do {
+        msqr = msgrcv(fido_msq, &msgbuf.mtext, msgsz, MAGIC_STORAGE_GET_METADATA, IPC_NOWAIT);
+        if (msqr >= 0) {
+            printf("[storage] received MAGIC_STORAGE_GET_METADATA from Fido\n");
+            /* appid is given by FIDO */
+            uint8_t *appid = &msgbuf.mtext.u8[0];
+            mbed_error_t errcode;
+            errcode = prepare_and_send_appid_metadata(fido_msq, appid);
+            /* get back content associated to appid */
+            goto endloop;
+        }
+        msqr = msgrcv(fido_msq, &msgbuf.mtext, msgsz, MAGIC_STORAGE_SET_METADATA, IPC_NOWAIT);
+        if (msqr >= 0) {
+            printf("[storage] received MAGIC_STORAGE_SET_METADATA from Fido\n");
+            goto endloop;
+        }
+        /* no message received ? As FIDO is a slave task, sleep for a moment... */
+        sys_sleep(500, SLEEP_MODE_INTERRUPTIBLE);
+endloop:
+        continue;
 
-        sys_yield();
-    //    sys_sleep(500, SLEEP_MODE_INTERRUPTIBLE);
-    }
+    } while (1);
 
  error:
     printf("Error! critical SDIO error, leaving!\n");
