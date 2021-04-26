@@ -270,7 +270,7 @@ int _main(uint32_t task_id)
 
     fidostorage_configure(buf, STORAGE_BUF_SIZE, &aes_key[0]);
 
-    sys_sleep(7000, SLEEP_MODE_INTERRUPTIBLE);
+    //sys_sleep(7000, SLEEP_MODE_INTERRUPTIBLE);
     uint8_t appid[32] = {
     0xcc,
     0xcc,
@@ -313,7 +313,21 @@ int _main(uint32_t task_id)
     printf("[fiostorage] starting appid measurement\n");
     fidostorage_get_appid_slot(&appid[0], &slot, &hmac[0]);
     fidostorage_get_appid_metadata(&appid[0], slot, &hmac[0], mt);
+    
+    uint8_t tmp[32 + 4 + 60 + 4 + 2 + 2] = { 0 };
+    fidostorage_appid_slot_t *metadata = (fidostorage_appid_slot_t*)tmp;
+    memcpy(metadata->appid, appid, sizeof(appid));
+    const char toto[] = "Alcatraz";
+    memcpy(metadata->name, toto, sizeof(toto));
+    metadata->flags = 0x1337;
+    metadata->ctr = 0xaabb;
+    metadata->icon_len = 3;
+    metadata->icon_type = 1;
+    metadata->icon.rgb_color[0] = 0xaa;
+    metadata->icon.rgb_color[1] = 0xbb;
+    metadata->icon.rgb_color[2] = 0xcc;
 
+    fidostorage_set_appid_metada(&slot, metadata);
 
 
     printf("SDIO main loop starting\n");
