@@ -297,7 +297,7 @@ int _main(uint32_t task_id)
     printf("[fiostorage] starting appid measurement\n");
     fidostorage_get_appid_slot(&appid[0], &slot, &hmac[0]);
     fidostorage_get_appid_metadata(&appid[0], slot, &hmac[0], mt);
-    
+
     uint8_t tmp[32 + 4 + 60 + 4 + 2 + 2] = { 0 };
     fidostorage_appid_slot_t *metadata = (fidostorage_appid_slot_t*)tmp;
     memcpy(metadata->appid, appid, sizeof(appid));
@@ -327,7 +327,7 @@ int _main(uint32_t task_id)
     size_t msgsz = 64;
 
     do {
-        msqr = msgrcv(fido_msq, &msgbuf.mtext, msgsz, MAGIC_STORAGE_GET_METADATA, IPC_NOWAIT);
+        msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_GET_METADATA, IPC_NOWAIT);
         if (msqr >= 0) {
             printf("[storage] received MAGIC_STORAGE_GET_METADATA from Fido\n");
             /* appid is given by FIDO */
@@ -337,7 +337,7 @@ int _main(uint32_t task_id)
             /* get back content associated to appid */
             goto endloop;
         }
-        msqr = msgrcv(fido_msq, &msgbuf.mtext, msgsz, MAGIC_STORAGE_SET_METADATA, IPC_NOWAIT);
+        msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_SET_METADATA, IPC_NOWAIT);
         if (msqr >= 0) {
             printf("[storage] received MAGIC_STORAGE_SET_METADATA from Fido\n");
             goto endloop;
