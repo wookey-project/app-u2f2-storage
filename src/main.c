@@ -73,12 +73,12 @@ mbed_error_t prepare_and_send_appid_metadata(int msq, uint8_t  *appid)
 {
     uint32_t slot;
     mbed_error_t errcode = MBED_ERROR_NONE;
-    if ((errcode = fidostorage_get_appid_slot(&appid[0], &slot, &hmac[0])) != MBED_ERROR_NONE) {
+    if ((errcode = fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0])) != MBED_ERROR_NONE) {
         errcode = send_appid_metadata(msq, appid, NULL, NULL);
         goto err;
     }
     fidostorage_appid_slot_t *mt = (fidostorage_appid_slot_t *)&buf[0];
-    if ((errcode = fidostorage_get_appid_metadata(&appid[0], slot, &hmac[0], mt)) != MBED_ERROR_NONE) {
+    if ((errcode = fidostorage_get_appid_metadata(&appid[0], NULL, slot, &hmac[0], mt)) != MBED_ERROR_NONE) {
         errcode = send_appid_metadata(msq, appid, NULL, NULL);
         goto err;
     }
@@ -295,10 +295,10 @@ int _main(uint32_t task_id)
     fidostorage_appid_slot_t *mt = (fidostorage_appid_slot_t *)&buf[0];
 
     printf("[fiostorage] starting appid measurement\n");
-    fidostorage_get_appid_slot(&appid[0], &slot, &hmac[0]);
-    fidostorage_get_appid_metadata(&appid[0], slot, &hmac[0], mt);
+    fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0]);
+    fidostorage_get_appid_metadata(&appid[0], NULL, slot, &hmac[0], mt);
 
-    uint8_t tmp[32 + 4 + 60 + 4 + 2 + 2] = { 0 };
+    uint8_t tmp[SLOT_MT_SIZE] = { 0 };
     fidostorage_appid_slot_t *metadata = (fidostorage_appid_slot_t*)tmp;
     memcpy(metadata->appid, appid, sizeof(appid));
     const char toto[] = "Alcatraz";
@@ -311,6 +311,62 @@ int _main(uint32_t task_id)
     metadata->icon.rgb_color[1] = 0xbb;
     metadata->icon.rgb_color[2] = 0xcc;
 
+    fidostorage_set_appid_metada(&slot, metadata);
+
+    uint8_t kh_hash[32] = {
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab
+     };
+    appid[31] = 0xcc;
+    fidostorage_get_appid_slot(&appid[0], &kh_hash[0], &slot, &hmac[0]);
+    fidostorage_get_appid_metadata(&appid[0], &kh_hash[0], slot, &hmac[0], mt);
+    fidostorage_set_appid_metada(&slot, NULL);
+
+    //
+    appid[31] = 0xc5;
+    memcpy(metadata->appid, appid, sizeof(appid));
+    memcpy(metadata->kh, kh_hash, sizeof(kh_hash));
+    const char toto2[] = "San Francisco";
+    memcpy(metadata->name, toto2, sizeof(toto2));
+    metadata->flags = 0xff;
+    metadata->ctr = 0xeeff;
+    metadata->icon_len = 3;
+    metadata->icon_type = 1;
+    metadata->icon.rgb_color[0] = 0xff;
+    metadata->icon.rgb_color[1] = 0xff;
+    metadata->icon.rgb_color[2] = 0xff;
+
+    slot = 0;
     fidostorage_set_appid_metada(&slot, metadata);
 
 #endif
