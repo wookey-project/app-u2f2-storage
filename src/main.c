@@ -29,6 +29,14 @@
  * of size and calculation in a microcontroler
  */
 #define STORAGE_DEBUG 0
+#if STORAGE_DEBUG
+# define log_printf(...) printf(__VA_ARGS__)
+#else
+# define log_printf(...)
+#endif
+
+
+
 #define STORAGE_BUF_SIZE 4096
 
 /* NOTE: alignment due to DMA */
@@ -73,7 +81,7 @@ mbed_error_t prepare_and_send_appid_metadata(int msq, uint8_t  *appid)
 {
     uint32_t slot;
     mbed_error_t errcode = MBED_ERROR_NONE;
-    if ((errcode = fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0])) != MBED_ERROR_NONE) {
+    if ((errcode = fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0], false)) != MBED_ERROR_NONE) {
         errcode = send_appid_metadata(msq, appid, NULL, NULL);
         goto err;
     }
@@ -295,7 +303,7 @@ int _main(uint32_t task_id)
     fidostorage_appid_slot_t *mt = (fidostorage_appid_slot_t *)&buf[0];
 
     printf("[fiostorage] starting appid measurement\n");
-    fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0]);
+    fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0], true);
     fidostorage_get_appid_metadata(&appid[0], NULL, slot, &hmac[0], mt);
 
     uint8_t tmp[SLOT_MT_SIZE] = { 0 };
@@ -347,12 +355,16 @@ int _main(uint32_t task_id)
     0xab,
     0xab
      };
-    appid[31] = 0xcc;
-    fidostorage_get_appid_slot(&appid[0], &kh_hash[0], &slot, &hmac[0]);
+    appid[30] = 0x00;
+    appid[31] = 0x11;
+    printf("==> get appid (full header + slot access)\n");
+    fidostorage_get_appid_slot(&appid[0], &kh_hash[0], &slot, &hmac[0], false);
     fidostorage_get_appid_metadata(&appid[0], &kh_hash[0], slot, &hmac[0], mt);
+    printf("==> Purge Appid\n");
     fidostorage_set_appid_metada(&slot, NULL);
 
     //
+    appid[30] = 0xcc;
     appid[31] = 0xc5;
     memcpy(metadata->appid, appid, sizeof(appid));
     memcpy(metadata->kh, kh_hash, sizeof(kh_hash));
@@ -367,6 +379,7 @@ int _main(uint32_t task_id)
     metadata->icon.rgb_color[2] = 0xff;
 
     slot = 0;
+    printf("==> Upgrade Appid\n");
     fidostorage_set_appid_metada(&slot, metadata);
 
 #endif
@@ -382,10 +395,13 @@ int _main(uint32_t task_id)
     struct msgbuf msgbuf = { 0 };
     size_t msgsz = 64;
 
+    /* Offlining header integrity calculation first */
+    // TODO need a 'calculate_header_integrity() API
+
     do {
         msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_GET_METADATA, IPC_NOWAIT);
         if (msqr >= 0) {
-            printf("[storage] received MAGIC_STORAGE_GET_METADATA from Fido\n");
+            log_printf("[storage] received MAGIC_STORAGE_GET_METADATA from Fido\n");
             /* appid is given by FIDO */
             uint8_t *appid = &msgbuf.mtext.u8[0];
             mbed_error_t errcode;
@@ -395,7 +411,7 @@ int _main(uint32_t task_id)
         }
         msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_SET_METADATA, IPC_NOWAIT);
         if (msqr >= 0) {
-            printf("[storage] received MAGIC_STORAGE_SET_METADATA from Fido\n");
+            log_printf("[storage] received MAGIC_STORAGE_SET_METADATA from Fido\n");
             goto endloop;
         }
         /* no message received ? As FIDO is a slave task, sleep for a moment... */
