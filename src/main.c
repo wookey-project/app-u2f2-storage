@@ -272,9 +272,28 @@ int _main(uint32_t task_id)
     /* we reuse the global buffer for metadata to reduce memory consumption */
     fidostorage_appid_slot_t *mt = (fidostorage_appid_slot_t *)&buf[0];
 
+    appid[31] = 0xa4;
+    mbed_error_t errcode;
     printf("[fiostorage] starting appid measurement\n");
-    fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0], true);
-    fidostorage_get_appid_metadata(&appid[0], NULL, slot, &hmac[0], mt);
+    errcode = fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0], true);
+    if (errcode != MBED_ERROR_NONE) {
+        printf("appid 0xcc..a4 not found!\n");
+    }
+
+    errcode = fidostorage_get_appid_metadata(&appid[0], NULL, slot, &hmac[0], mt);
+    printf("appid 0xcc..a4 name is %s\n", mt->name);
+
+    appid[31] = 0xc5;
+    errcode = fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0], true);
+    if (errcode != MBED_ERROR_NONE) {
+        printf("appid 0xcc..c5 not found!\n");
+    }
+
+    errcode = fidostorage_get_appid_metadata(&appid[0], NULL, slot, &hmac[0], mt);
+
+
+    appid[30] = 0x00;
+    appid[31] = 0x11;
 
     uint8_t tmp[SLOT_MT_SIZE] = { 0 };
     fidostorage_appid_slot_t *metadata = (fidostorage_appid_slot_t*)tmp;
@@ -377,11 +396,36 @@ int _main(uint32_t task_id)
             /* get back content associated to appid */
             goto endloop;
         }
+
         msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_SET_METADATA, IPC_NOWAIT);
         if (msqr >= 0) {
             log_printf("[storage] received MAGIC_STORAGE_SET_METADATA from Fido\n");
             goto endloop;
         }
+
+        msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_INC_CTR, IPC_NOWAIT);
+        if (msqr >= 0) {
+            log_printf("[storage] received MAGIC_STORAGE_INC_CTR from Fido\n");
+            if (msqr < 32) {
+                printf("[storage] appid given too short: %d bytes\n", msqr);
+            }
+            uint8_t *appid = &msgbuf.mtext.u8[0];
+            if (fidostorage_get_appid_slot(appid, &kh_hash[0], &slot, &hmac[0], false)) {
+                printf("[storage] appid given by fido not found\n");
+                goto endloop;
+            }
+            if (fidostorage_get_appid_metadata(&appid[0], &kh_hash[0], slot, &hmac[0], mt)) {
+                printf("[storage] failed to get back appid metadata\n");
+            }
+            /* increment counter. What FIDO says for UINT32_MAX ? */
+            mt->ctr++;
+            if (fidostorage_set_appid_metada(&slot, metadata)) {
+                printf("[storage] failed to set back appid CTR\n");
+            }
+            /* XXX: acknowledge FIDO */
+            goto endloop;
+        }
+
         /* no message received ? As FIDO is a slave task, sleep for a moment... */
         sys_sleep(500, SLEEP_MODE_INTERRUPTIBLE);
 endloop:
