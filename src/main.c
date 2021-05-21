@@ -172,42 +172,47 @@ int _main(uint32_t task_id)
     sd_init();
 
     /************************************************
-     * Sending crypto end_of_service_init
+     * get back cryptographic inputs (encryption+integrity key, anti-rollback)
      ***********************************************/
+    printf("[storage] get back storage assets from FIDO\n");
+    int msqr;
+    struct msgbuf msgbuf = { 0 };
+    size_t msgsz = 0;
 
-    /*******************************************
-     * Sharing DMA SHM address and size with crypto
-     *******************************************/
+    uint8_t aes_key[32];
 
-#if 0
-    ipc_sync_cmd_data.magic = MAGIC_DMA_SHM_INFO_CMD;
-    ipc_sync_cmd_data.state = SYNC_READY;
-    ipc_sync_cmd_data.data_size = 2;
-    ipc_sync_cmd_data.data.u32[0] = (uint32_t) sdio_buf;
-    ipc_sync_cmd_data.data.u32[1] = SDIO_BUF_SIZE;
-
-    printf("informing crypto about DMA SHM...\n");
-    ret =
-        sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command_data),
-                (char *) &ipc_sync_cmd_data);
-    if (ret != SYS_E_DONE) {
-        printf("sys_ipc(IPC_SEND_SYNC, id_crypto) failed! Exiting...\n");
+    msgbuf.mtype = MAGIC_STORAGE_GET_ASSETS;
+    msqr = msgsnd(fido_msq, &msgbuf, 0, 0);
+    if (msqr < 0) {
+        printf("[storage] failed to get back storage assets from Fido, errno=%d\n", errno);
         goto error;
     }
 
-    ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char *) &ipc_sync_cmd);
-    if (ret != SYS_E_DONE) {
-        printf("sys_ipc(IPC_RECV_SYNC) failed! Exiting...\n");
+    /* get back AES master key */
+    msgsz = 32;
+    if ((msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_SET_ASSETS_MASTERKEY, 0)) < 0) {
+        printf("[storage] failed while trying to receive AES encryption key, errno=%d\n", errno);
         goto error;
     }
-    if ((ipc_sync_cmd.magic == MAGIC_DMA_SHM_INFO_RESP)
-        && (ipc_sync_cmd.state == SYNC_ACKNOWLEDGE)) {
-        printf("crypto has acknowledge DMA SHM, continuing\n");
-    } else {
-        printf("Error ! IPC desynchro !\n");
+    if (msqr < 32) {
+        printf("[storage] received AES encryption key too small: %d bytes\n", msqr);
         goto error;
     }
-#endif
+    memcpy(&aes_key[0], &msgbuf.mtext.u8[0], 32);
+
+    /* get back sd anti-rollback counter */
+    msgsz = 8;
+    if ((msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_SET_ASSETS_ROLLBK, 0)) < 0) {
+        printf("[storage] failed while trying to receive anti-rollback counter, errno=%d\n", errno);
+        goto error;
+    }
+    if (msqr < 8) {
+        printf("[storage] received rollback counter too small: %d bytes\n", msqr);
+        goto error;
+    }
+
+
+
     /* XXX: FIX using hardcoded AES key while not yet communicating with FIDO app */
 
     printf("Fido informed.\n");
@@ -223,41 +228,6 @@ int _main(uint32_t task_id)
     */
 
     sd_set_block_len(512);
-
-    uint8_t aes_key[32] = {
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-        0xaa,
-    };
 
 
     fidostorage_configure(buf, STORAGE_BUF_SIZE, &aes_key[0]);
@@ -391,9 +361,7 @@ int _main(uint32_t task_id)
      * event such as ISR or IPC.
      */
 
-    int msqr;
-    struct msgbuf msgbuf = { 0 };
-    size_t msgsz = 64;
+    msgsz = 64;
 
     /* Offlining header integrity calculation first */
     // TODO need a 'calculate_header_integrity() API
