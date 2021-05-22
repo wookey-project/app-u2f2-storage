@@ -81,7 +81,7 @@ mbed_error_t prepare_and_send_appid_metadata(int msq, uint8_t  *appid)
 {
     uint32_t slot;
     mbed_error_t errcode = MBED_ERROR_NONE;
-    if ((errcode = fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0], false)) != MBED_ERROR_NONE) {
+    if ((errcode = fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0], NULL, false)) != MBED_ERROR_NONE) {
         errcode = send_appid_metadata(msq, appid, NULL, NULL);
         goto err;
     }
@@ -200,7 +200,7 @@ int _main(uint32_t task_id)
     }
     memcpy(&aes_key[0], &msgbuf.mtext.u8[0], 32);
 
-    /* get back sd anti-rollback counter */
+    /* get back sd anti-rollback counter from the token */
     msgsz = 8;
     if ((msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_SET_ASSETS_ROLLBK, 0)) < 0) {
         printf("[storage] failed while trying to receive anti-rollback counter, errno=%d\n", errno);
@@ -210,8 +210,6 @@ int _main(uint32_t task_id)
         printf("[storage] received rollback counter too small: %d bytes\n", msqr);
         goto error;
     }
-
-
 
     /* XXX: FIX using hardcoded AES key while not yet communicating with FIDO app */
 
@@ -223,26 +221,17 @@ int _main(uint32_t task_id)
      *   from IPC interface
      *******************************************/
     /*
-       512 nytes is the mandatory blocksize for SD card >= HC
+       512 bytes is the mandatory blocksize for SD card >= HC
        it is also mandatorily support by the other cards so it can be hardcoded
     */
 
     sd_set_block_len(512);
 
 
+    /* Inject our keys for encryption and integrity */
     fidostorage_configure(buf, STORAGE_BUF_SIZE, &aes_key[0]);
-
-    /* Now that the storage is configured, we globally check the integrity of our header */
-    /* NOTE: calling fidostorage_get_appid_slot with NULL as appid will ask for a header
-     * integrity check!
-     */
+  
     mbed_error_t errcode;
-    errcode = fidostorage_get_appid_slot(NULL, NULL, NULL, NULL, true);
-    if (errcode != MBED_ERROR_NONE) {
-        printf("SD integrity is NOT OK!\n");
-        goto error;
-    }
-   
 
 #if 1
     //sys_sleep(7000, SLEEP_MODE_INTERRUPTIBLE);
@@ -286,7 +275,7 @@ int _main(uint32_t task_id)
 
     appid[31] = 0xa4;
     printf("[fiostorage] starting appid measurement\n");
-    errcode = fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0], false);
+    errcode = fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0], NULL, false);
     if (errcode != MBED_ERROR_NONE) {
         printf("appid 0xcc..a4 not found!\n");
     }
@@ -295,7 +284,7 @@ int _main(uint32_t task_id)
     printf("appid 0xcc..a4 name is %s\n", mt->name);
 
     appid[31] = 0xc5;
-    errcode = fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0], false);
+    errcode = fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0], NULL, false);
     if (errcode != MBED_ERROR_NONE) {
         printf("appid 0xcc..c5 not found!\n");
     }
@@ -358,7 +347,7 @@ int _main(uint32_t task_id)
     appid[30] = 0x00;
     appid[31] = 0x11;
     printf("==> get appid (full header + slot access)\n");
-    fidostorage_get_appid_slot(&appid[0], &kh_hash[0], &slot, &hmac[0], false);
+    fidostorage_get_appid_slot(&appid[0], &kh_hash[0], &slot, &hmac[0], NULL, false);
     fidostorage_get_appid_metadata(&appid[0], &kh_hash[0], slot, &hmac[0], mt);
     printf("==> Purge Appid\n");
     fidostorage_set_appid_metada(&slot, NULL);
@@ -387,14 +376,28 @@ int _main(uint32_t task_id)
 
     printf("SDIO main loop starting\n");
     /*
-     * Main waiting loopt. The task main thread is awoken by any external
+     * Main waiting loop. The task main thread is awoken by any external
      * event such as ISR or IPC.
      */
 
     msgsz = 64;
 
-    /* Offlining header integrity calculation first */
-    // TODO need a 'calculate_header_integrity() API
+    /* Now that the storage is configured, we globally check the integrity of our header */
+    /* NOTE: calling fidostorage_get_appid_slot with NULL as appid will ask for a header
+     * integrity check!
+     */
+    uint8_t sd_replay_ctr[8] = { 0 };
+    errcode = fidostorage_get_appid_slot(NULL, NULL, NULL, NULL, sd_replay_ctr, true);
+    if (errcode != MBED_ERROR_NONE) {
+        printf("SD integrity is NOT OK!\n");
+        goto error;
+    }
+
+    /* We can check our anti-rollback counter */
+    
+
+    /* XXX TODO: increment anti-rollback counter on the two sides */
+
 
     do {
         msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_GET_METADATA, IPC_NOWAIT);
@@ -421,7 +424,7 @@ int _main(uint32_t task_id)
                 printf("[storage] appid given too short: %d bytes\n", msqr);
             }
             uint8_t *appid = &msgbuf.mtext.u8[0];
-            if (fidostorage_get_appid_slot(appid, &kh_hash[0], &slot, &hmac[0], false)) {
+            if (fidostorage_get_appid_slot(appid, &kh_hash[0], &slot, &hmac[0], NULL, false)) {
                 printf("[storage] appid given by fido not found\n");
                 goto endloop;
             }
