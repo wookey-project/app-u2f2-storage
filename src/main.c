@@ -232,6 +232,18 @@ int _main(uint32_t task_id)
 
     fidostorage_configure(buf, STORAGE_BUF_SIZE, &aes_key[0]);
 
+    /* Now that the storage is configured, we globally check the integrity of our header */
+    /* NOTE: calling fidostorage_get_appid_slot with NULL as appid will ask for a header
+     * integrity check!
+     */
+    mbed_error_t errcode;
+    errcode = fidostorage_get_appid_slot(NULL, NULL, NULL, NULL, true);
+    if (errcode != MBED_ERROR_NONE) {
+        printf("SD integrity is NOT OK!\n");
+        goto error;
+    }
+   
+
 #if 1
     //sys_sleep(7000, SLEEP_MODE_INTERRUPTIBLE);
     uint32_t slot;
@@ -273,9 +285,8 @@ int _main(uint32_t task_id)
     fidostorage_appid_slot_t *mt = (fidostorage_appid_slot_t *)&buf[0];
 
     appid[31] = 0xa4;
-    mbed_error_t errcode;
     printf("[fiostorage] starting appid measurement\n");
-    errcode = fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0], true);
+    errcode = fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0], false);
     if (errcode != MBED_ERROR_NONE) {
         printf("appid 0xcc..a4 not found!\n");
     }
@@ -284,7 +295,7 @@ int _main(uint32_t task_id)
     printf("appid 0xcc..a4 name is %s\n", mt->name);
 
     appid[31] = 0xc5;
-    errcode = fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0], true);
+    errcode = fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0], false);
     if (errcode != MBED_ERROR_NONE) {
         printf("appid 0xcc..c5 not found!\n");
     }
