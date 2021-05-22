@@ -201,6 +201,7 @@ int _main(uint32_t task_id)
     memcpy(&aes_key[0], &msgbuf.mtext.u8[0], 32);
 
     /* get back sd anti-rollback counter from the token */
+    uint8_t smartcard_replay_ctr[8] = { 0 };
     msgsz = 8;
     if ((msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_SET_ASSETS_ROLLBK, 0)) < 0) {
         printf("[storage] failed while trying to receive anti-rollback counter, errno=%d\n", errno);
@@ -210,6 +211,7 @@ int _main(uint32_t task_id)
         printf("[storage] received rollback counter too small: %d bytes\n", msqr);
         goto error;
     }
+    memcpy(&smartcard_replay_ctr[0], &msgbuf.mtext.u8[0], 8);
 
     /* XXX: FIX using hardcoded AES key while not yet communicating with FIDO app */
 
@@ -394,7 +396,11 @@ int _main(uint32_t task_id)
     }
 
     /* We can check our anti-rollback counter */
-    
+    if(memcmp(sd_replay_ctr, smartcard_replay_ctr, 8) != 0){
+        /* XXX TODO: tell the user and if he accepts resynchronize the counters! */
+        printf("SD and smartcard replay counters do not match!");
+        goto error;
+    }
 
     /* XXX TODO: increment anti-rollback counter on the two sides */
 
