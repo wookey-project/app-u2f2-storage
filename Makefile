@@ -39,11 +39,7 @@ CFLAGS += -Isrc/ -MMD -MP
 # linker options to add the layout file
 LDFLAGS += $(EXTRA_LDFLAGS) -L$(APP_BUILD_DIR)
 # project's library you whish to use...
-LD_LIBS +=  -Wl,--start-group -Wl,-lstd -Wl,-lsd -Wl,-lsdio -Wl,-lu2f2 -Wl,-lfidostorage -Wl,-laes -Wl,-lcryp -Wl,--end-group
-
-ifeq (y,$(CONFIG_STD_DRBG))
-LD_LIBS += -lhmac -lsign
-endif
+LD_LIBS +=  -Wl,--start-group -Wl,-lstd -Wl,-lhmac -Wl,-lsign -Wl,-lsd -Wl,-lsdio -Wl,-lu2f2 -Wl,-lfidostorage -Wl,-laes -Wl,-lcryp -Wl,--end-group
 
 ###################################################################
 # okay let's list our source files and generated files now
@@ -79,6 +75,7 @@ LIBDEP := $(BUILD_DIR)/libs/libstd/libstd.a \
           $(BUILD_DIR)/libs/libsd/libsd.a \
           $(BUILD_DIR)/libs/libfidostorage/libfidostorage.a \
           $(BUILD_DIR)/libs/libaes/libaes.a \
+          $(BUILD_DIR)/libs/libhmac/libhmac.a \
           $(BUILD_DIR)/libs/libsd/libu2f2.a
 
 libdep: $(LIBDEP)

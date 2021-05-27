@@ -29,6 +29,14 @@
  * of size and calculation in a microcontroler
  */
 #define STORAGE_DEBUG 0
+#if STORAGE_DEBUG
+# define log_printf(...) printf(__VA_ARGS__)
+#else
+# define log_printf(...)
+#endif
+
+
+
 #define STORAGE_BUF_SIZE 4096
 
 /* NOTE: alignment due to DMA */
@@ -66,6 +74,27 @@ void SDIO_asks_reset(uint8_t fido_msq)
 }
 
 int fido_msq = 0;
+uint8_t hmac[32] = { 0x0 };
+
+
+mbed_error_t prepare_and_send_appid_metadata(int msq, uint8_t  *appid)
+{
+    uint32_t slot;
+    mbed_error_t errcode = MBED_ERROR_NONE;
+    if ((errcode = fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0], NULL, false)) != MBED_ERROR_NONE) {
+        errcode = send_appid_metadata(msq, appid, NULL, NULL);
+        goto err;
+    }
+    fidostorage_appid_slot_t *mt = (fidostorage_appid_slot_t *)&buf[0];
+    if ((errcode = fidostorage_get_appid_metadata(&appid[0], NULL, slot, &hmac[0], mt)) != MBED_ERROR_NONE) {
+        errcode = send_appid_metadata(msq, appid, NULL, NULL);
+        goto err;
+    }
+    errcode = send_appid_metadata(msq, appid, mt, &mt->icon.icon_data[0]);
+err:
+    return errcode;
+}
+
 
 
 int _main(uint32_t task_id)
@@ -89,44 +118,6 @@ int _main(uint32_t task_id)
 
     // PTH test cryp
     fidostorage_declare();
-
-    /*********************************************
-     * Declaring DMA Shared Memory with FIDO
-     *********************************************/
-#if 0
-    /* FIDO DMA will read from this buffer */
-    dmashm_rd.target = fido_msq;
-    dmashm_rd.source = task_id;
-    dmashm_rd.address = (physaddr_t) storage_buf;
-    dmashm_rd.size = STORAGE_BUF_SIZE;
-    dmashm_rd.mode = DMA_SHM_ACCESS_RD;
-
-    /* FIDO DMA will write into this buffer */
-    dmashm_wr.target = fido_msq;
-    dmashm_wr.source = task_id;
-    dmashm_wr.address = (physaddr_t) storage_buf;
-    dmashm_wr.size = STORAGE_BUF_SIZE;
-    dmashm_wr.mode = DMA_SHM_ACCESS_WR;
-
-    printf("Declaring DMA_SHM for FIDO read flow\n");
-    ret = sys_init(INIT_DMA_SHM, &dmashm_rd);
-    if (ret != SYS_E_DONE) {
-#if STORAGE_DEBUG
-        printf("Oops! %s:%d\n", __func__, __LINE__);
-#endif
-        goto error;
-    }
-
-    printf("Declaring DMA_SHM for FIDO write flow\n");
-    ret = sys_init(INIT_DMA_SHM, &dmashm_wr);
-    if (ret != SYS_E_DONE) {
-#if STORAGE_DEBUG
-        printf("Oops! %s:%d\n", __func__, __LINE__);
-#endif
-        goto error;
-    }
-    printf("sys_init returns %s !\n", strerror(ret));
-#endif
 
 #if CONFIG_WOOKEY
     /*********************************************
@@ -181,42 +172,48 @@ int _main(uint32_t task_id)
     sd_init();
 
     /************************************************
-     * Sending crypto end_of_service_init
+     * get back cryptographic inputs (encryption+integrity key, anti-rollback)
      ***********************************************/
+    printf("[storage] get back storage assets from FIDO\n");
+    int msqr;
+    struct msgbuf msgbuf = { 0 };
+    size_t msgsz = 0;
 
-    /*******************************************
-     * Sharing DMA SHM address and size with crypto
-     *******************************************/
+    uint8_t aes_key[32];
 
-#if 0
-    ipc_sync_cmd_data.magic = MAGIC_DMA_SHM_INFO_CMD;
-    ipc_sync_cmd_data.state = SYNC_READY;
-    ipc_sync_cmd_data.data_size = 2;
-    ipc_sync_cmd_data.data.u32[0] = (uint32_t) sdio_buf;
-    ipc_sync_cmd_data.data.u32[1] = SDIO_BUF_SIZE;
-
-    printf("informing crypto about DMA SHM...\n");
-    ret =
-        sys_ipc(IPC_SEND_SYNC, id_crypto, sizeof(struct sync_command_data),
-                (char *) &ipc_sync_cmd_data);
-    if (ret != SYS_E_DONE) {
-        printf("sys_ipc(IPC_SEND_SYNC, id_crypto) failed! Exiting...\n");
+    msgbuf.mtype = MAGIC_STORAGE_GET_ASSETS;
+    msqr = msgsnd(fido_msq, &msgbuf, 0, 0);
+    if (msqr < 0) {
+        printf("[storage] failed to get back storage assets from Fido, errno=%d\n", errno);
         goto error;
     }
 
-    ret = sys_ipc(IPC_RECV_SYNC, &id, &size, (char *) &ipc_sync_cmd);
-    if (ret != SYS_E_DONE) {
-        printf("sys_ipc(IPC_RECV_SYNC) failed! Exiting...\n");
+    /* get back AES master key */
+    msgsz = 32;
+    if ((msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_SET_ASSETS_MASTERKEY, 0)) < 0) {
+        printf("[storage] failed while trying to receive AES encryption key, errno=%d\n", errno);
         goto error;
     }
-    if ((ipc_sync_cmd.magic == MAGIC_DMA_SHM_INFO_RESP)
-        && (ipc_sync_cmd.state == SYNC_ACKNOWLEDGE)) {
-        printf("crypto has acknowledge DMA SHM, continuing\n");
-    } else {
-        printf("Error ! IPC desynchro !\n");
+    if (msqr < 32) {
+        printf("[storage] received AES encryption key too small: %d bytes\n", msqr);
         goto error;
     }
-#endif
+    memcpy(&aes_key[0], &msgbuf.mtext.u8[0], 32);
+
+    /* get back sd anti-rollback counter from the token */
+    uint8_t smartcard_replay_ctr[8] = { 0 };
+    msgsz = 8;
+    if ((msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_SET_ASSETS_ROLLBK, 0)) < 0) {
+        printf("[storage] failed while trying to receive anti-rollback counter, errno=%d\n", errno);
+        goto error;
+    }
+    if (msqr < 8) {
+        printf("[storage] received rollback counter too small: %d bytes\n", msqr);
+        goto error;
+    }
+    memcpy(&smartcard_replay_ctr[0], &msgbuf.mtext.u8[0], 8);
+
+    /* XXX: FIX using hardcoded AES key while not yet communicating with FIDO app */
 
     printf("Fido informed.\n");
 
@@ -226,36 +223,235 @@ int _main(uint32_t task_id)
      *   from IPC interface
      *******************************************/
     /*
-       512 nytes is the mandatory blocksize for SD card >= HC
+       512 bytes is the mandatory blocksize for SD card >= HC
        it is also mandatorily support by the other cards so it can be hardcoded
     */
 
-    fidostorage_configure(buf, STORAGE_BUF_SIZE);
     sd_set_block_len(512);
 
-    sys_sleep(7000, SLEEP_MODE_INTERRUPTIBLE);
-    uint8_t appid[32] = { 0x42 };
-    uint32_t slot;
-    fidostorage_appid_metadata_t mt;
-    printf("[fiostorage] starting appid measurement\n");
-    fidostorage_get_appid_slot(&appid[0], &slot);
-    fidostorage_get_appid_metadata(&appid[0], 0xce04, &mt);
 
+    /* Inject our keys for encryption and integrity */
+    fidostorage_configure(buf, STORAGE_BUF_SIZE, &aes_key[0]);
+  
+    mbed_error_t errcode;
+
+#if 1
+    //sys_sleep(7000, SLEEP_MODE_INTERRUPTIBLE);
+    uint32_t slot;
+    uint8_t appid[32] = {
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xcc,
+    0xc5
+     };
+    /* we reuse the global buffer for metadata to reduce memory consumption */
+    fidostorage_appid_slot_t *mt = (fidostorage_appid_slot_t *)&buf[0];
+
+    appid[31] = 0xa4;
+    printf("[fiostorage] starting appid measurement\n");
+    errcode = fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0], NULL, false);
+    if (errcode != MBED_ERROR_NONE) {
+        printf("appid 0xcc..a4 not found!\n");
+    }
+
+    errcode = fidostorage_get_appid_metadata(&appid[0], NULL, slot, &hmac[0], mt);
+    printf("appid 0xcc..a4 name is %s\n", mt->name);
+
+    appid[31] = 0xc5;
+    errcode = fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0], NULL, false);
+    if (errcode != MBED_ERROR_NONE) {
+        printf("appid 0xcc..c5 not found!\n");
+    }
+
+    errcode = fidostorage_get_appid_metadata(&appid[0], NULL, slot, &hmac[0], mt);
+
+
+    appid[30] = 0x00;
+    appid[31] = 0x11;
+
+    uint8_t tmp[SLOT_MT_SIZE] = { 0 };
+    fidostorage_appid_slot_t *metadata = (fidostorage_appid_slot_t*)tmp;
+    memcpy(metadata->appid, appid, sizeof(appid));
+    const char toto[] = "Alcatraz";
+    memcpy(metadata->name, toto, sizeof(toto));
+    metadata->flags = 0x1337;
+    metadata->ctr = 0xaabb;
+    metadata->icon_len = 3;
+    metadata->icon_type = 1;
+    metadata->icon.rgb_color[0] = 0xaa;
+    metadata->icon.rgb_color[1] = 0xbb;
+    metadata->icon.rgb_color[2] = 0xcc;
+
+    fidostorage_set_appid_metada(&slot, metadata);
+
+    uint8_t kh_hash[32] = {
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab,
+    0xab
+     };
+    appid[30] = 0x00;
+    appid[31] = 0x11;
+    printf("==> get appid (full header + slot access)\n");
+    fidostorage_get_appid_slot(&appid[0], &kh_hash[0], &slot, &hmac[0], NULL, false);
+    fidostorage_get_appid_metadata(&appid[0], &kh_hash[0], slot, &hmac[0], mt);
+    printf("==> Purge Appid\n");
+    fidostorage_set_appid_metada(&slot, NULL);
+
+    //
+    appid[30] = 0xcc;
+    appid[31] = 0xc5;
+    memcpy(metadata->appid, appid, sizeof(appid));
+    memcpy(metadata->kh, kh_hash, sizeof(kh_hash));
+    const char toto2[] = "San Francisco";
+    memcpy(metadata->name, toto2, sizeof(toto2));
+    metadata->flags = 0xff;
+    metadata->ctr = 0xeeff;
+    metadata->icon_len = 3;
+    metadata->icon_type = 1;
+    metadata->icon.rgb_color[0] = 0xff;
+    metadata->icon.rgb_color[1] = 0xff;
+    metadata->icon.rgb_color[2] = 0xff;
+
+    slot = 0;
+    printf("==> Upgrade Appid\n");
+    fidostorage_set_appid_metada(&slot, metadata);
+
+#endif
 
 
     printf("SDIO main loop starting\n");
     /*
-     * Main waiting loopt. The task main thread is awoken by any external
+     * Main waiting loop. The task main thread is awoken by any external
      * event such as ISR or IPC.
      */
 
+    msgsz = 64;
 
-    sys_yield();
-    while (1) {
-
-        sys_yield();
-    //    sys_sleep(500, SLEEP_MODE_INTERRUPTIBLE);
+    /* Now that the storage is configured, we globally check the integrity of our header */
+    /* NOTE: calling fidostorage_get_appid_slot with NULL as appid will ask for a header
+     * integrity check!
+     */
+    uint8_t sd_replay_ctr[8] = { 0 };
+    errcode = fidostorage_get_appid_slot(NULL, NULL, NULL, NULL, sd_replay_ctr, true);
+    if (errcode != MBED_ERROR_NONE) {
+        printf("SD integrity is NOT OK!\n");
+        goto error;
     }
+
+    /* We can check our anti-rollback counter */
+    if(memcmp(sd_replay_ctr, smartcard_replay_ctr, 8) != 0){
+        /* XXX TODO: tell the user and if he accepts resynchronize the counters! */
+        printf("SD and smartcard replay counters do not match!");
+        goto error;
+    }
+
+    /* XXX TODO: increment anti-rollback counter on the two sides */
+
+
+    do {
+        msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_GET_METADATA, IPC_NOWAIT);
+        if (msqr >= 0) {
+            log_printf("[storage] received MAGIC_STORAGE_GET_METADATA from Fido\n");
+            /* appid is given by FIDO */
+            uint8_t *appid = &msgbuf.mtext.u8[0];
+            mbed_error_t errcode;
+            errcode = prepare_and_send_appid_metadata(fido_msq, appid);
+            /* get back content associated to appid */
+            goto endloop;
+        }
+
+        msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_SET_METADATA, IPC_NOWAIT);
+        if (msqr >= 0) {
+            log_printf("[storage] received MAGIC_STORAGE_SET_METADATA from Fido\n");
+            goto endloop;
+        }
+
+        msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_INC_CTR, IPC_NOWAIT);
+        if (msqr >= 0) {
+            log_printf("[storage] received MAGIC_STORAGE_INC_CTR from Fido\n");
+            if (msqr < 32) {
+                printf("[storage] appid given too short: %d bytes\n", msqr);
+            }
+            uint8_t *appid = &msgbuf.mtext.u8[0];
+            if (fidostorage_get_appid_slot(appid, &kh_hash[0], &slot, &hmac[0], NULL, false)) {
+                printf("[storage] appid given by fido not found\n");
+                goto endloop;
+            }
+            if (fidostorage_get_appid_metadata(&appid[0], &kh_hash[0], slot, &hmac[0], mt)) {
+                printf("[storage] failed to get back appid metadata\n");
+            }
+            /* increment counter. What FIDO says for UINT32_MAX ? */
+            mt->ctr++;
+            if (fidostorage_set_appid_metada(&slot, metadata)) {
+                printf("[storage] failed to set back appid CTR\n");
+            }
+            /* XXX: acknowledge FIDO */
+            goto endloop;
+        }
+
+        /* no message received ? As FIDO is a slave task, sleep for a moment... */
+        sys_sleep(500, SLEEP_MODE_INTERRUPTIBLE);
+endloop:
+        continue;
+
+    } while (1);
 
  error:
     printf("Error! critical SDIO error, leaving!\n");
