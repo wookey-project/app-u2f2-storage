@@ -96,147 +96,9 @@ err:
 }
 
 
-
-int _main(uint32_t task_id)
+void benchmark(void)
 {
-    e_syscall_ret ret;
-    char   *wellcome_msg = "hello, I'm storage";
-    int     led_desc;
-
-    printf("%s, my id is %x\n", wellcome_msg, task_id);
-
-    fido_msq = msgget("fido", IPC_CREAT | IPC_EXCL);
-    if (fido_msq == -1) {
-        printf("error while requesting SysV message queue. Errno=%x\n", errno);
-        goto error;
-    }
-
-    /* Early init phase of drivers/libs */
-    if (sd_early_init()) {
-        printf("SDIO KO !!!!! \n");
-    }
-
-    // PTH test cryp
-    fidostorage_declare();
-
-#if CONFIG_WOOKEY
-    /*********************************************
-     * Declaring SDIO read/write access LED
-     ********************************************/
-
-    printf("Declaring SDIO LED device\n");
-    device_t dev;
-
-    memset(&dev, 0, sizeof(device_t));
-    strncpy(dev.name, "sdio_led", sizeof("sdio_led"));
-    dev.gpio_num = 1;
-    dev.gpios[0].mask =
-        GPIO_MASK_SET_MODE | GPIO_MASK_SET_PUPD | GPIO_MASK_SET_SPEED;
-    dev.gpios[0].kref.port = led1_dev_infos.gpios[LED1].port;
-    dev.gpios[0].kref.pin = led1_dev_infos.gpios[LED1].pin;
-    dev.gpios[0].pupd = GPIO_NOPULL;
-    dev.gpios[0].mode = GPIO_PIN_OUTPUT_MODE;
-    dev.gpios[0].speed = GPIO_PIN_HIGH_SPEED;
-
-    ret = sys_init(INIT_DEVACCESS, &dev, &led_desc);
-    if (ret != SYS_E_DONE) {
-        printf("Error while declaring LED GPIO device: %d\n", ret);
-        goto error;
-    }
-#endif
-
-    /*******************************************
-     * End of init
-     *******************************************/
-
-    printf("set init as done\n");
-    ret = sys_init(INIT_DONE);
-    printf("sys_init returns %s !\n", strerror(ret));
-
-#if CONFIG_WOOKEY
-    led_on();
-    sys_sleep(1000, SLEEP_MODE_INTERRUPTIBLE);
-    led_off();
-#endif
-
-    /*******************************************
-     * Let's syncrhonize with other tasks
-     *******************************************/
-
-    /* Init phase of drivers/libs */
-#if 0
-    if (SD_ejection_occured) {
-        SDIO_asks_reset(fido_msq);
-    }
-#endif
-    sd_init();
-
-    /************************************************
-     * get back cryptographic inputs (encryption+integrity key, anti-rollback)
-     ***********************************************/
-    printf("[storage] get back storage assets from FIDO\n");
-    int msqr;
-    struct msgbuf msgbuf = { 0 };
-    size_t msgsz = 0;
-
-    uint8_t aes_key[32];
-
-    msgbuf.mtype = MAGIC_STORAGE_GET_ASSETS;
-    msqr = msgsnd(fido_msq, &msgbuf, 0, 0);
-    if (msqr < 0) {
-        printf("[storage] failed to get back storage assets from Fido, errno=%d\n", errno);
-        goto error;
-    }
-
-    /* get back AES master key */
-    msgsz = 32;
-    if ((msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_SET_ASSETS_MASTERKEY, 0)) < 0) {
-        printf("[storage] failed while trying to receive AES encryption key, errno=%d\n", errno);
-        goto error;
-    }
-    if (msqr < 32) {
-        printf("[storage] received AES encryption key too small: %d bytes\n", msqr);
-        goto error;
-    }
-    memcpy(&aes_key[0], &msgbuf.mtext.u8[0], 32);
-
-    /* get back sd anti-rollback counter from the token */
-    uint8_t smartcard_replay_ctr[8] = { 0 };
-    msgsz = 8;
-    if ((msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_SET_ASSETS_ROLLBK, 0)) < 0) {
-        printf("[storage] failed while trying to receive anti-rollback counter, errno=%d\n", errno);
-        goto error;
-    }
-    if (msqr < 8) {
-        printf("[storage] received rollback counter too small: %d bytes\n", msqr);
-        goto error;
-    }
-    memcpy(&smartcard_replay_ctr[0], &msgbuf.mtext.u8[0], 8);
-
-    /* XXX: FIX using hardcoded AES key while not yet communicating with FIDO app */
-
-    printf("Fido informed.\n");
-
-    /*******************************************
-     * Main read/write loop
-     *   SDIO is waiting for READ/WRITE command
-     *   from IPC interface
-     *******************************************/
-    /*
-       512 bytes is the mandatory blocksize for SD card >= HC
-       it is also mandatorily support by the other cards so it can be hardcoded
-    */
-
-    sd_set_block_len(512);
-
-
-    /* Inject our keys for encryption and integrity */
-    fidostorage_configure(buf, STORAGE_BUF_SIZE, &aes_key[0]);
-  
     mbed_error_t errcode;
-
-#if 1
-    //sys_sleep(7000, SLEEP_MODE_INTERRUPTIBLE);
     uint32_t slot;
     uint8_t appid[32] = {
     0xcc,
@@ -372,11 +234,135 @@ int _main(uint32_t task_id)
     slot = 0;
     printf("==> Upgrade Appid\n");
     fidostorage_set_appid_metada(&slot, metadata);
+}
 
+
+int _main(uint32_t task_id)
+{
+    e_syscall_ret ret;
+    char   *wellcome_msg = "hello, I'm storage";
+    int     led_desc;
+    mbed_error_t errcode;
+
+    printf("%s, my id is %x\n", wellcome_msg, task_id);
+
+    fido_msq = msgget("fido", IPC_CREAT | IPC_EXCL);
+    if (fido_msq == -1) {
+        printf("error while requesting SysV message queue. Errno=%x\n", errno);
+        goto error;
+    }
+
+    /* Early init phase of drivers/libs */
+    if (sd_early_init()) {
+        printf("SDIO KO !!!!! \n");
+    }
+
+    // PTH test cryp
+    fidostorage_declare();
+
+#if CONFIG_WOOKEY
+    /*********************************************
+     * Declaring SDIO read/write access LED
+     ********************************************/
+
+    printf("Declaring SDIO LED device\n");
+    device_t dev;
+
+    memset(&dev, 0, sizeof(device_t));
+    strncpy(dev.name, "sdio_led", sizeof("sdio_led"));
+    dev.gpio_num = 1;
+    dev.gpios[0].mask =
+        GPIO_MASK_SET_MODE | GPIO_MASK_SET_PUPD | GPIO_MASK_SET_SPEED;
+    dev.gpios[0].kref.port = led1_dev_infos.gpios[LED1].port;
+    dev.gpios[0].kref.pin = led1_dev_infos.gpios[LED1].pin;
+    dev.gpios[0].pupd = GPIO_NOPULL;
+    dev.gpios[0].mode = GPIO_PIN_OUTPUT_MODE;
+    dev.gpios[0].speed = GPIO_PIN_HIGH_SPEED;
+
+    ret = sys_init(INIT_DEVACCESS, &dev, &led_desc);
+    if (ret != SYS_E_DONE) {
+        printf("Error while declaring LED GPIO device: %d\n", ret);
+        goto error;
+    }
 #endif
 
+    /*******************************************
+     * End of init
+     *******************************************/
 
-    printf("SDIO main loop starting\n");
+    printf("set init as done\n");
+    ret = sys_init(INIT_DONE);
+    printf("sys_init returns %s !\n", strerror(ret));
+
+#if CONFIG_WOOKEY
+    led_on();
+    sys_sleep(1000, SLEEP_MODE_INTERRUPTIBLE);
+    led_off();
+#endif
+
+    /*******************************************
+     * Let's syncrhonize with other tasks
+     *******************************************/
+
+    /* Init phase of drivers/libs */
+#if 0
+    if (SD_ejection_occured) {
+        SDIO_asks_reset(fido_msq);
+    }
+#endif
+    sd_init();
+
+    sd_set_block_len(512);
+
+
+    /************************************************
+     * get back cryptographic inputs (encryption+integrity key, anti-rollback)
+     ***********************************************/
+    printf("[storage] get back storage assets from FIDO\n");
+    int msqr;
+    struct msgbuf msgbuf = { 0 };
+    size_t msgsz = 0;
+
+    uint8_t aes_key[32];
+
+    msgbuf.mtype = MAGIC_STORAGE_GET_ASSETS;
+    msqr = msgsnd(fido_msq, &msgbuf, 0, 0);
+    if (msqr < 0) {
+        printf("[storage] failed to get back storage assets from Fido, errno=%d\n", errno);
+        goto error;
+    }
+
+    /* get back AES master key */
+    msgsz = 32;
+    if ((msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_SET_ASSETS_MASTERKEY, 0)) < 0) {
+        printf("[storage] failed while trying to receive AES encryption key, errno=%d\n", errno);
+        goto error;
+    }
+    if (msqr < 32) {
+        printf("[storage] received AES encryption key too small: %d bytes\n", msqr);
+        goto error;
+    }
+    memcpy(&aes_key[0], &msgbuf.mtext.u8[0], 32);
+
+    /* get back sd anti-rollback counter from the token */
+    uint8_t smartcard_replay_ctr[8] = { 0 };
+    msgsz = 8;
+    if ((msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_SET_ASSETS_ROLLBK, 0)) < 0) {
+        printf("[storage] failed while trying to receive anti-rollback counter, errno=%d\n", errno);
+        goto error;
+    }
+    if (msqr < 8) {
+        printf("[storage] received rollback counter too small: %d bytes\n", msqr);
+        goto error;
+    }
+    memcpy(&smartcard_replay_ctr[0], &msgbuf.mtext.u8[0], 8);
+
+
+    uint8_t kh_hash[32] = { 0x0 };
+    uint32_t slot;
+    fidostorage_appid_slot_t *mt = (fidostorage_appid_slot_t *)&buf[0];
+
+
     /*
      * Main waiting loop. The task main thread is awoken by any external
      * event such as ISR or IPC.
@@ -384,27 +370,50 @@ int _main(uint32_t task_id)
 
     msgsz = 64;
 
+    /* Inject our keys for encryption and integrity */
+    fidostorage_configure(buf, STORAGE_BUF_SIZE, &aes_key[0]);
+
     /* Now that the storage is configured, we globally check the integrity of our header */
     /* NOTE: calling fidostorage_get_appid_slot with NULL as appid will ask for a header
      * integrity check!
      */
     uint8_t sd_replay_ctr[8] = { 0 };
-    errcode = fidostorage_get_appid_slot(NULL, NULL, NULL, NULL, sd_replay_ctr, true);
+    /* get back current replay counter from storage */
+    errcode = fidostorage_get_replay_counter(sd_replay_ctr, true);
     if (errcode != MBED_ERROR_NONE) {
         printf("SD integrity is NOT OK!\n");
         goto error;
     }
-
     /* We can check our anti-rollback counter */
-    if(memcmp(sd_replay_ctr, smartcard_replay_ctr, 8) != 0){
+    if(memcmp(sd_replay_ctr, smartcard_replay_ctr, 8) != 0) {
         /* XXX TODO: tell the user and if he accepts resynchronize the counters! */
         printf("SD and smartcard replay counters do not match!");
         goto error;
     }
+    /* increment local SD counter ... */
+    fidostorage_inc_replay_counter(&sd_replay_ctr[0]);
+    errcode = fidostorage_set_replay_counter(&sd_replay_ctr[0]);
+    if (errcode != MBED_ERROR_NONE) {
+        printf("Failed to increment SD replay counter!\n");
+        goto error;
+    }
+    /* ... and inform FIDO */
+    msgbuf.mtype = MAGIC_STORAGE_SD_ROLLBK_COUNTER;
+    memcpy(&msgbuf.mtext.u8[0], &sd_replay_ctr[0], 8);
+    if ((msqr = msgsnd(fido_msq, &msgbuf, 8, 0)) < 0) {
+        printf("[storage] failed while returning updated replay counter to FIDO, errno=%d\n", errno);
+        goto error;
+    }
 
-    /* XXX TODO: increment anti-rollback counter on the two sides */
 
 
+#if CONFIG_APP_STORAGE_BENCH
+    benchmark();
+#endif
+
+
+
+    printf("SDIO main loop starting\n");
     do {
         msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_GET_METADATA, IPC_NOWAIT);
         if (msqr >= 0) {
@@ -439,7 +448,7 @@ int _main(uint32_t task_id)
             }
             /* increment counter. What FIDO says for UINT32_MAX ? */
             mt->ctr++;
-            if (fidostorage_set_appid_metada(&slot, metadata)) {
+            if (fidostorage_set_appid_metada(&slot, mt)) {
                 printf("[storage] failed to set back appid CTR\n");
             }
             /* XXX: acknowledge FIDO */

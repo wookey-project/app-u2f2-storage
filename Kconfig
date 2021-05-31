@@ -12,8 +12,18 @@ config APP_STORAGE
 
 if APP_STORAGE
 
+config APP_STORAGE_BENCH
+  bool "Performance measurements and bench at startup"
+  depends on APP_STORAGE
+  depends on STM32F4
+  default n
+  ---help---
+    Say y if you want to embbed performance measurements at startup.
+
+
+
 config APP_STORAGE_FW
-  bool "Sdio App for firmware mode"
+  bool "Storage App for firmware mode"
   depends on APP_STORAGE
   depends on STM32F4
   default y
