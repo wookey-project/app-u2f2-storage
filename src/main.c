@@ -28,7 +28,7 @@
  * without compiler complain. argc/argv is not a goot idea in term
  * of size and calculation in a microcontroler
  */
-#define STORAGE_DEBUG 0
+#define STORAGE_DEBUG 1
 #if STORAGE_DEBUG
 # define log_printf(...) printf(__VA_ARGS__)
 #else
@@ -387,9 +387,20 @@ int _main(uint32_t task_id)
     /* We can check our anti-rollback counter */
     if(memcmp(sd_replay_ctr, smartcard_replay_ctr, 8) != 0) {
         /* XXX TODO: tell the user and if he accepts resynchronize the counters! */
-        printf("SD and smartcard replay counters do not match!");
+        printf("SD and smartcard replay counters do not match!\n");
+        printf("SD replay ctr:\n");
+        hexdump(sd_replay_ctr, 8);
+        printf("Smartcard replay ctr:\n");
+        hexdump(smartcard_replay_ctr, 8);        
         goto error;
     }
+
+#if STORAGE_DEBUG
+    printf("SD replay ctr:\n");
+    hexdump(sd_replay_ctr, 8);
+    printf("Smartcard replay ctr:\n");
+    hexdump(smartcard_replay_ctr, 8);        
+#endif
     /* increment local SD counter ... */
     fidostorage_inc_replay_counter(&sd_replay_ctr[0]);
     errcode = fidostorage_set_replay_counter(&sd_replay_ctr[0]);
@@ -404,7 +415,10 @@ int _main(uint32_t task_id)
         printf("[storage] failed while returning updated replay counter to FIDO, errno=%d\n", errno);
         goto error;
     }
-
+#if STORAGE_DEBUG
+    printf("New replay ctr:\n");
+    hexdump(sd_replay_ctr, 8);
+#endif
 
 
 #if CONFIG_APP_STORAGE_BENCH
