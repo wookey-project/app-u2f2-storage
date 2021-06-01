@@ -77,16 +77,16 @@ int fido_msq = 0;
 uint8_t hmac[32] = { 0x0 };
 
 
-mbed_error_t prepare_and_send_appid_metadata(int msq, uint8_t  *appid)
+mbed_error_t prepare_and_send_appid_metadata(int msq, uint8_t  *appid, uint8_t  *kh_h)
 {
     uint32_t slot;
     mbed_error_t errcode = MBED_ERROR_NONE;
-    if ((errcode = fidostorage_get_appid_slot(&appid[0], NULL, &slot, &hmac[0], NULL, false)) != MBED_ERROR_NONE) {
+    if ((errcode = fidostorage_get_appid_slot(&appid[0], &kh_h[0], &slot, &hmac[0], NULL, false)) != MBED_ERROR_NONE) {
         errcode = send_appid_metadata(msq, appid, NULL, NULL);
         goto err;
     }
     fidostorage_appid_slot_t *mt = (fidostorage_appid_slot_t *)&buf[0];
-    if ((errcode = fidostorage_get_appid_metadata(&appid[0], NULL, slot, &hmac[0], mt)) != MBED_ERROR_NONE) {
+    if ((errcode = fidostorage_get_appid_metadata(&appid[0], &kh_h[0], slot, &hmac[0], mt)) != MBED_ERROR_NONE) {
         errcode = send_appid_metadata(msq, appid, NULL, NULL);
         goto err;
     }
@@ -394,7 +394,7 @@ int _main(uint32_t task_id)
         hexdump(smartcard_replay_ctr, 8);
 #if CONFIG_APP_STORAGE_IGNORE_REPLAY_CTR
         /* We are explicitly asked to ignore the global anti-replay counters */
-        printf("We are asked to explicitly ignore this error\n");          
+        printf("We are asked to explicitly ignore this error\n");
 #else
         goto error;
 #endif
@@ -404,7 +404,7 @@ int _main(uint32_t task_id)
     printf("SD replay ctr:\n");
     hexdump(sd_replay_ctr, 8);
     printf("Smartcard replay ctr:\n");
-    hexdump(smartcard_replay_ctr, 8);        
+    hexdump(smartcard_replay_ctr, 8);
 #endif
     /* increment local SD counter ... */
     fidostorage_inc_replay_counter(&sd_replay_ctr[0]);
@@ -439,8 +439,9 @@ int _main(uint32_t task_id)
             log_printf("[storage] received MAGIC_STORAGE_GET_METADATA from Fido\n");
             /* appid is given by FIDO */
             uint8_t *appid = &msgbuf.mtext.u8[0];
+            uint8_t *kh_h = &msgbuf.mtext.u8[32];
             mbed_error_t errcode;
-            errcode = prepare_and_send_appid_metadata(fido_msq, appid);
+            errcode = prepare_and_send_appid_metadata(fido_msq, appid, kh_h);
             /* get back content associated to appid */
             goto endloop;
         }
