@@ -20,6 +20,14 @@ config APP_STORAGE_BENCH
   ---help---
     Say y if you want to embbed performance measurements at startup.
 
+config APP_STORAGE_IGNORE_REPLAY_CTR
+  bool "Explicitly ignore anti-replay counter mismach between storage and smart card"
+  depends on APP_STORAGE
+  depends on STM32F4
+  default n
+  ---help---
+    Say y if you want to explicitly ignore a mismatch of the anti-replay counter.
+    WARNING: this is here for debug purposes, DO NOT activate for production!
 
 
 config APP_STORAGE_FW

@@ -391,8 +391,13 @@ int _main(uint32_t task_id)
         printf("SD replay ctr:\n");
         hexdump(sd_replay_ctr, 8);
         printf("Smartcard replay ctr:\n");
-        hexdump(smartcard_replay_ctr, 8);        
+        hexdump(smartcard_replay_ctr, 8);
+#if CONFIG_APP_STORAGE_IGNORE_REPLAY_CTR
+        /* We are explicitly asked to ignore the global anti-replay counters */
+        printf("We are asked to explicitly ignore this error\n");          
+#else
         goto error;
+#endif
     }
 
 #if STORAGE_DEBUG
