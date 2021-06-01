@@ -446,6 +446,25 @@ int _main(uint32_t task_id)
             goto endloop;
         }
 
+        msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_GET_METADATA_STATUS, IPC_NOWAIT);
+        if (msqr >= 0) {
+            log_printf("[storage] received MAGIC_STORAGE_GET_METADATA_STATUS from Fido\n");
+            uint8_t *appid = &msgbuf.mtext.u8[0];
+            uint8_t *kh_h = &msgbuf.mtext.u8[32];
+            uint32_t slotid = 0;
+
+            msgbuf.mtype = MAGIC_APPID_METADATA_STATUS;
+            if (fidostorage_get_appid_slot(appid, kh, &slotid, NULL, NULL, false) != MBED_ERROR_NONE) {
+                msgbuf.mtext.u8[0] = 0x0; /* not found */
+            } else {
+                msgbuf.mtext.u8[0] = 0xff; /* found */
+            }
+            msgsnd(fido_msq, &msgbuf, 1, 0);
+            /* get back content associated to appid */
+            goto endloop;
+        }
+
+
         msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_SET_METADATA, IPC_NOWAIT);
         if (msqr >= 0) {
             log_printf("[storage] received MAGIC_STORAGE_SET_METADATA from Fido\n");
