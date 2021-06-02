@@ -94,20 +94,12 @@ err:
     return errcode;
 }
 
-mbed_error_t receive_appid_metadata_and_store(int msq, uint8_t  *appid, uint8_t  *kh_h)
+mbed_error_t receive_appid_metadata_and_store(int msq, uint8_t  mode)
 {
-    uint32_t slot;
     mbed_error_t errcode = MBED_ERROR_NONE;
 
-    /* First of all, receive all our metadata */
-    fidostorage_appid_slot_t *mt = (fidostorage_appid_slot_t *)&buf[0];
-    fidostorage_set_metadata_mode_t mode;
-    uint32_t metadata_mask;
-    if((errcode = receive_appid_metadata(appid, mt, &mode, &metadata_mask)) != MBED_ERROR_NONE){
-         goto err;
-    }
-
-err:
+    /* Let's handle metadata set. We use u2F2 helper for automaton */
+    errcode = set_appid_metadata(msq, (u2f2_set_metadata_mode_t)mode, &buf[0], STORAGE_BUF_SIZE);
     return errcode;
 }
 
@@ -190,7 +182,7 @@ void benchmark(void)
     metadata->icon.rgb_color[1] = 0xbb;
     metadata->icon.rgb_color[2] = 0xcc;
 
-    fidostorage_set_appid_metada(&slot, metadata);
+    fidostorage_set_appid_metadata(&slot, metadata);
 
     uint8_t kh_hash[32] = {
     0xab,
@@ -232,7 +224,7 @@ void benchmark(void)
     fidostorage_get_appid_slot(&appid[0], &kh_hash[0], &slot, &hmac[0], NULL, false);
     fidostorage_get_appid_metadata(&appid[0], &kh_hash[0], slot, &hmac[0], mt);
     printf("==> Purge Appid\n");
-    fidostorage_set_appid_metada(&slot, NULL);
+    fidostorage_set_appid_metadata(&slot, NULL);
 
     //
     appid[30] = 0xcc;
@@ -251,7 +243,7 @@ void benchmark(void)
 
     slot = 0;
     printf("==> Upgrade Appid\n");
-    fidostorage_set_appid_metada(&slot, metadata);
+    fidostorage_set_appid_metadata(&slot, metadata);
 }
 
 
@@ -472,7 +464,7 @@ int _main(uint32_t task_id)
             uint32_t slotid = 0;
 
             msgbuf.mtype = MAGIC_APPID_METADATA_STATUS;
-            if (fidostorage_get_appid_slot(appid, kh, &slotid, NULL, NULL, false) != MBED_ERROR_NONE) {
+            if (fidostorage_get_appid_slot(appid, kh_h, &slotid, NULL, NULL, false) != MBED_ERROR_NONE) {
                 msgbuf.mtext.u8[0] = 0x0; /* not found */
             } else {
                 msgbuf.mtext.u8[0] = 0xff; /* found */
@@ -487,10 +479,9 @@ int _main(uint32_t task_id)
         if (msqr >= 0) {
             log_printf("[storage] received MAGIC_STORAGE_SET_METADATA from Fido\n");
             /* appid is given by FIDO */
-            uint8_t *appid = &msgbuf.mtext.u8[0];
-            uint8_t *kh_h = &msgbuf.mtext.u8[32];
+            uint8_t mode = msgbuf.mtext.u8[0];
             mbed_error_t errcode;
-            errcode = receive_appid_metadata_and_store(fido_msq, appid, kh_h);
+            errcode = receive_appid_metadata_and_store(fido_msq, mode);
             goto endloop;
         }
 
@@ -510,7 +501,7 @@ int _main(uint32_t task_id)
             }
             /* increment counter. What FIDO says for UINT32_MAX ? */
             mt->ctr++;
-            if (fidostorage_set_appid_metada(&slot, mt)) {
+            if (fidostorage_set_appid_metadata(&slot, mt)) {
                 printf("[storage] failed to set back appid CTR\n");
             }
             /* XXX: acknowledge FIDO */
