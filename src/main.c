@@ -98,8 +98,13 @@ mbed_error_t receive_appid_metadata_and_store(int msq, uint8_t  mode)
 {
     mbed_error_t errcode = MBED_ERROR_NONE;
 
+    __attribute__ ((aligned(4)))
+        uint8_t wbuf[sizeof(fidostorage_appid_slot_t)] = { 0 };
+
+    /* here we need to **write** data to storage, thus, we can't use the working buf of fidostorage as it
+     * is used by libfidostorage */
     /* Let's handle metadata set. We use u2F2 helper for automaton */
-    errcode = set_appid_metadata(msq, (u2f2_set_metadata_mode_t)mode, &buf[0], STORAGE_BUF_SIZE);
+    errcode = set_appid_metadata(msq, (u2f2_set_metadata_mode_t)mode, &wbuf[0], STORAGE_BUF_SIZE);
     return errcode;
 }
 
