@@ -76,7 +76,6 @@ void SDIO_asks_reset(uint8_t fido_msq)
 int fido_msq = 0;
 uint8_t hmac[32] = { 0x0 };
 
-
 mbed_error_t prepare_and_send_appid_metadata(int msq, uint8_t  *appid, uint8_t  *kh_h)
 {
     uint32_t slot;
@@ -94,6 +93,24 @@ mbed_error_t prepare_and_send_appid_metadata(int msq, uint8_t  *appid, uint8_t  
 err:
     return errcode;
 }
+
+mbed_error_t receive_appid_metadata_and_store(int msq, uint8_t  *appid, uint8_t  *kh_h)
+{
+    uint32_t slot;
+    mbed_error_t errcode = MBED_ERROR_NONE;
+
+    /* First of all, receive all our metadata */
+    fidostorage_appid_slot_t *mt = (fidostorage_appid_slot_t *)&buf[0];
+    fidostorage_set_metadata_mode_t mode;
+    if((errcode = receive_appid_metadata(appid, mt, &mode)) != MBED_ERROR_NONE){
+         goto err;
+    }
+
+err:
+    return errcode;
+}
+
+
 
 
 void benchmark(void)
@@ -432,7 +449,7 @@ int _main(uint32_t task_id)
 
 
 
-    printf("SDIO main loop starting\n");
+    printf("Storage main loop starting\n");
     do {
         msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_GET_METADATA, IPC_NOWAIT);
         if (msqr >= 0) {
@@ -468,6 +485,11 @@ int _main(uint32_t task_id)
         msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_SET_METADATA, IPC_NOWAIT);
         if (msqr >= 0) {
             log_printf("[storage] received MAGIC_STORAGE_SET_METADATA from Fido\n");
+            /* appid is given by FIDO */
+            uint8_t *appid = &msgbuf.mtext.u8[0];
+            uint8_t *kh_h = &msgbuf.mtext.u8[32];
+            mbed_error_t errcode;
+            errcode = receive_appid_metadata_and_store(fido_msq, appid, kh_h);
             goto endloop;
         }
 
@@ -502,6 +524,6 @@ endloop:
     } while (1);
 
  error:
-    printf("Error! critical SDIO error, leaving!\n");
+    printf("Error! critical storage error, leaving task!\n");
     return 1;
 }
