@@ -102,7 +102,8 @@ mbed_error_t receive_appid_metadata_and_store(int msq, uint8_t  *appid, uint8_t 
     /* First of all, receive all our metadata */
     fidostorage_appid_slot_t *mt = (fidostorage_appid_slot_t *)&buf[0];
     fidostorage_set_metadata_mode_t mode;
-    if((errcode = receive_appid_metadata(appid, mt, &mode)) != MBED_ERROR_NONE){
+    uint32_t metadata_mask;
+    if((errcode = receive_appid_metadata(appid, mt, &mode, &metadata_mask)) != MBED_ERROR_NONE){
          goto err;
     }
 
