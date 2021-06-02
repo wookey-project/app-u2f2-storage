@@ -456,7 +456,9 @@ int _main(uint32_t task_id)
             uint8_t *appid = &msgbuf.mtext.u8[0];
             uint8_t *kh_h = &msgbuf.mtext.u8[32];
             mbed_error_t errcode;
-            errcode = prepare_and_send_appid_metadata(fido_msq, appid, kh_h);
+            if (unlikely((errcode = prepare_and_send_appid_metadata(fido_msq, appid, kh_h)) != MBED_ERROR_NONE)) {
+                log_printf("[storage] failed to prepare and send appid metadata! err=%d\n", errcode);
+            }
             /* get back content associated to appid */
             goto endloop;
         }
