@@ -373,7 +373,6 @@ int _main(uint32_t task_id)
     memcpy(&smartcard_replay_ctr[0], &msgbuf.mtext.u8[0], 8);
 
 
-    uint8_t kh_hash[32] = { 0x0 };
     uint32_t slot;
     fidostorage_appid_slot_t *mt = (fidostorage_appid_slot_t *)&buf[0];
 
@@ -495,15 +494,21 @@ int _main(uint32_t task_id)
         msqr = msgrcv(fido_msq, &msgbuf, msgsz, MAGIC_STORAGE_INC_CTR, IPC_NOWAIT);
         if (msqr >= 0) {
             log_printf("[storage] received MAGIC_STORAGE_INC_CTR from Fido\n");
-            if (msqr < 32) {
+            if (msqr < 64) {
                 printf("[storage] appid given too short: %d bytes\n", msqr);
             }
             uint8_t *appid = &msgbuf.mtext.u8[0];
-            if (fidostorage_get_appid_slot(appid, &kh_hash[0], &slot, &hmac[0], NULL, false)) {
+            uint8_t *kh_h = &msgbuf.mtext.u8[32];
+printf("APPID:\n");
+hexdump(appid, 32);
+printf("KH:\n");
+hexdump(kh_h, 32);
+
+            if (fidostorage_get_appid_slot(appid, kh_h, &slot, &hmac[0], NULL, false)) {
                 printf("[storage] appid given by fido not found\n");
                 goto endloop;
             }
-            if (fidostorage_get_appid_metadata(&appid[0], &kh_hash[0], slot, &hmac[0], mt)) {
+            if (fidostorage_get_appid_metadata(appid, kh_h, slot, &hmac[0], mt)) {
                 printf("[storage] failed to get back appid metadata\n");
             }
             /* increment counter. What FIDO says for UINT32_MAX ? */
