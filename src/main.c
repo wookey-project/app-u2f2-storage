@@ -187,7 +187,7 @@ void benchmark(void)
     metadata->icon.rgb_color[1] = 0xbb;
     metadata->icon.rgb_color[2] = 0xcc;
 
-    fidostorage_set_appid_metadata(&slot, metadata);
+    fidostorage_set_appid_metadata(&slot, metadata, true);
 
     uint8_t kh_hash[32] = {
     0xab,
@@ -229,7 +229,7 @@ void benchmark(void)
     fidostorage_get_appid_slot(&appid[0], &kh_hash[0], &slot, &hmac[0], NULL, false);
     fidostorage_get_appid_metadata(&appid[0], &kh_hash[0], slot, &hmac[0], mt);
     printf("==> Purge Appid\n");
-    fidostorage_set_appid_metadata(&slot, NULL);
+    fidostorage_set_appid_metadata(&slot, NULL, true);
 
     //
     appid[30] = 0xcc;
@@ -248,7 +248,7 @@ void benchmark(void)
 
     slot = 0;
     printf("==> Upgrade Appid\n");
-    fidostorage_set_appid_metadata(&slot, metadata);
+    fidostorage_set_appid_metadata(&slot, metadata, true);
 }
 
 
@@ -338,7 +338,7 @@ int _main(uint32_t task_id)
     struct msgbuf msgbuf = { 0 };
     size_t msgsz = 0;
 
-    uint8_t aes_key[32];
+    uint8_t aes_key[32] = { 0 };
 
     msgbuf.mtype = MAGIC_STORAGE_GET_ASSETS;
     msqr = msgsnd(fido_msq, &msgbuf, 0, 0);
@@ -422,7 +422,7 @@ int _main(uint32_t task_id)
 #endif
     /* increment local SD counter ... */
     fidostorage_inc_replay_counter(&sd_replay_ctr[0]);
-    errcode = fidostorage_set_replay_counter(&sd_replay_ctr[0]);
+    errcode = fidostorage_set_replay_counter(&sd_replay_ctr[0], true);
     if (errcode != MBED_ERROR_NONE) {
         printf("Failed to increment SD replay counter!\n");
         goto error;
@@ -504,16 +504,19 @@ hexdump(appid, 32);
 printf("KH:\n");
 hexdump(kh_h, 32);
 
-            if (fidostorage_get_appid_slot(appid, kh_h, &slot, &hmac[0], NULL, false)) {
+            if (fidostorage_get_appid_slot(appid, kh_h, &slot, &hmac[0], NULL, false) != MBED_ERROR_NONE) {
                 printf("[storage] appid given by fido not found\n");
                 goto endloop;
             }
-            if (fidostorage_get_appid_metadata(appid, kh_h, slot, &hmac[0], mt)) {
+            if (fidostorage_fetch_shadow_bitmap() != MBED_ERROR_NONE){
+                printf("[storage] failed to fetch shadow bitmap\n");               
+            }
+            if (fidostorage_get_appid_metadata(appid, kh_h, slot, &hmac[0], mt) != MBED_ERROR_NONE) {
                 printf("[storage] failed to get back appid metadata\n");
             }
             /* increment counter. What FIDO says for UINT32_MAX ? */
             mt->ctr++;
-            if (fidostorage_set_appid_metadata(&slot, mt)) {
+            if (fidostorage_set_appid_metadata(&slot, mt, false) != MBED_ERROR_NONE) {
                 printf("[storage] failed to set back appid CTR\n");
             }
             /* XXX: acknowledge FIDO */
