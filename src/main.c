@@ -28,7 +28,7 @@
  * without compiler complain. argc/argv is not a goot idea in term
  * of size and calculation in a microcontroler
  */
-#define STORAGE_DEBUG 1
+#define STORAGE_DEBUG 0
 #if STORAGE_DEBUG
 # define log_printf(...) printf(__VA_ARGS__)
 #else
@@ -73,8 +73,8 @@ void SDIO_asks_reset(uint8_t fido_msq)
     fido_msq = fido_msq;
 }
 
-int fido_msq = 0;
-uint8_t hmac[32] = { 0x0 };
+static int fido_msq = 0;
+static uint8_t hmac[32] = { 0x0 };
 
 mbed_error_t prepare_and_send_appid_metadata(int msq, uint8_t  *appid, uint8_t  *kh_h)
 {
@@ -98,13 +98,10 @@ mbed_error_t receive_appid_metadata_and_store(int msq, uint8_t  mode)
 {
     mbed_error_t errcode = MBED_ERROR_NONE;
 
-    __attribute__ ((aligned(4)))
-        uint8_t wbuf[sizeof(fidostorage_appid_slot_t)] = { 0 };
-
     /* here we need to **write** data to storage, thus, we can't use the working buf of fidostorage as it
      * is used by libfidostorage */
     /* Let's handle metadata set. We use u2F2 helper for automaton */
-    errcode = set_appid_metadata(msq, (u2f2_set_metadata_mode_t)mode, &wbuf[0], STORAGE_BUF_SIZE);
+    errcode = set_appid_metadata(msq, (u2f2_set_metadata_mode_t)mode, &buf[0], STORAGE_BUF_SIZE);
     return errcode;
 }
 
@@ -499,10 +496,6 @@ int _main(uint32_t task_id)
             }
             uint8_t *appid = &msgbuf.mtext.u8[0];
             uint8_t *kh_h = &msgbuf.mtext.u8[32];
-printf("APPID:\n");
-hexdump(appid, 32);
-printf("KH:\n");
-hexdump(kh_h, 32);
 
             if (fidostorage_get_appid_slot(appid, kh_h, &slot, &hmac[0], NULL, false) != MBED_ERROR_NONE) {
                 printf("[storage] appid given by fido not found\n");
